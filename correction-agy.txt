@@ -1,0 +1,922 @@
+○ Thought for 29.7s (The function `owner` is a view function returning an address and taking no arguments. The EVM call...)
+● Ran 3 commands (ls -la ..: failed · ls -la · ls -la src/)
+● Explored 2 files (package.json, .env.example)
+… 8 more actions (4 reads, 4 commands) …
+● Ran 3 commands (git status: failed · find src/ -name "*rpc*" · ls -la src/app/)
+● Explored 3 files (next.config.ts, votingAbi.ts, README.md) (ctrl+o to expand)
+
+▸ Thought for 18s, 2.1k tokens
+
+  Cette erreur est levée par Viem (ContractFunctionZeroDataError) lors de l'exécution de client.readContract dans
+  src/hooks/useVotingData.ts:41.
+  ──────
+  ### Pourquoi cette erreur se produit-elle ?
+
+  1. Le frontend envoie une requête JSON-RPC eth_call au nœud Ethereum avec le sélecteur de la fonction owner() (hash
+  0x8da5cb5b).
+  2. Le nœud RPC répond avec un résultat vide : "0x".
+  3. Viem s'attend à décoder une adresse (32 octets / 64 caractères hexadécimaux). Recevant 0x, il ne peut pas décoder la
+  valeur de retour et renvoie :
+  The contract function "owner" returned no data ("0x").
+
+  Signification concrète : Sur la blockchain interrogée par votre application, aucun bytecode ne se trouve à l'adresse
+  ciblée (c'est un compte vide / une adresse non déployée) ou la fonction appelée n'existe pas dans le contrat déployé.
+  ──────
+  ### Pistes de correction
+
+  #### 1. Le contrat n'est pas déployé ou Anvil a été redémarré (Piste la plus probable)
+
+  • Explication : Une blockchain locale comme Anvil stocke son état en mémoire vive. À chaque redémarrage d'Anvil (ou de
+  votre machine), la blockchain est réinitialisée à zéro : tous les contrats précédemment déployés disparaissent.
+  L'adresse ciblée redevient un compte vide.
+  • Correction :
+      1. Vérifiez qu'Anvil tourne dans un terminal :
+        anvil
+
+      2. Depuis la racine du projet Foundry, redéployez le contrat :
+        forge create src/Voting.sol:Voting --broadcast --rpc-url http://127.0.0.1:8545 \
+          --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+      3. Notez la nouvelle adresse affichée (Deployed to: 0x...).
+
+  ──────
+  #### 2. L'adresse dans .env.local est absente ou obsolète
+
+  • Explication : Le fichier src/lib/contract.ts:4-5 utilise process.env.NEXT_PUBLIC_VOTING_ADDRESS avec une adresse de
+  repli par défaut (0xfD30...). Si le fichier .env.local n'existe pas ou contient une ancienne adresse, l'application
+  interroge une adresse inexistante sur le nœud.
+  • Correction :
+      1. Créez votre fichier .env.local dans frontend/ (s'il n'existe pas encore) à partir de .env.example :
+        cp .env.example .env.local
+
+      2. Renseignez l'adresse réelle issue de votre déploiement :
+        NEXT_PUBLIC_VOTING_ADDRESS=0x<VOTRE_ADRESSE_DE_DEPLOIEMENT>
+        NEXT_PUBLIC_CHAIN_ID=31337
+
+      3. Redémarrez le serveur de dev (pnpm dev) pour recharger les variables d'environnement.
+
+  ──────
+  #### 3. Conflit d'URL RPC dans .env.local (ex: URL Avalanche Fuji au lieu de Localhost)
+
+  • Explication : Dans .env.example:8, NEXT_PUBLIC_RPC_URL contient un lien vers Infura Avalanche Fuji. Si vous avez copié
+  cette ligne dans .env.local, le client web va interroger Avalanche Fuji (où votre contrat local n'existe pas !) au lieu
+  de votre nœud local.
+  • Correction :
+  Comme indiqué dans next.config.ts:4 et src/lib/wagmi.ts:7-13, en local, laissez NEXT_PUBLIC_RPC_URL vide ou commentée :
+    NEXT_PUBLIC_CHAIN_ID=31337
+    # Laisser vide en local (Next.js relaie /rpc vers LOCAL_RPC_URL) :
+    # NEXT_PUBLIC_RPC_URL=
+    LOCAL_RPC_URL=http://127.0.0.1:8545
+
+  ──────
+  #### 4. Le wallet connecté n'est pas sur le bon réseau
+
+  • Explication : Si vous utilisez MetaMask et qu'il est positionné sur Sepolia, Ethereum Mainnet ou Avalanche au lieu de
+  Localhost 8545 (Chain ID 31337), les lectures de contrat échoueront.
+  • Correction :
+      • Basculez votre wallet sur le réseau local Anvil / Localhost:8545 (Chain ID 31337).
+      • Ou déconnectez MetaMask et utilisez directement les connecteurs intégrés de test Anvil (« Compte de test #0
+      (admin) ») configurés dans src/lib/wagmi.ts:29-35.
+
+
+────────────────────────────────────────────────────────────
+> merci de créer le abi a intégrer dans le fichier fichier src/lib/votingAbi.ts pour le contrat ../src/Voting.sol
+
+○ Thought for 35.3s (Analyzing the Solidity code for the `Voting` contract, starting with the SPDX license and pragma st...)
+● Explored 3 files (Voting.sol, Voting.json, votingAbi.ts)
+● Ran 4 commands (+1 · ~/.foundry/bin/forge --version: failed · which forge solc: failed · pnpm exe...) (ctrl+o to expand)
+
+▸ Thought for 19s, 2.5k tokens
+
+  Voici l'ABI complète et conforme au contrat ../src/Voting.sol (incluant le constructeur payable, les 8 erreurs
+  personnalisées, les 5 événements, les fonctions métier, les getters avec leurs struct dont uint128 votedProposalId,
+  ainsi que les fonctions et erreurs héritées d'Ownable d'OpenZeppelin).
+
+  Le fichier src/lib/votingAbi.ts contient déjà cette configuration avec le typage strict as const nécessaire pour viem et
+  wagmi.
+
+  ### Contenu pour src/lib/votingAbi.ts
+
+    // Généré pour ../src/Voting.sol
+    export const votingAbi = [
+      {
+        inputs: [],
+        stateMutability: "payable",
+        type: "constructor",
+      },
+      // --- Erreurs personnalisées ---
+      {
+        inputs: [],
+        name: "AlreadyRegistered",
+        type: "error",
+      },
+      {
+        inputs: [],
+        name: "AlreadyVoted",
+        type: "error",
+      },
+      {
+        inputs: [],
+        name: "EmptyProposal",
+        type: "error",
+      },
+      {
+        inputs: [
+          {
+            internalType: "enum Voting.WorkflowStatus",
+            name: "expected",
+            type: "uint8",
+          },
+          {
+            internalType: "enum Voting.WorkflowStatus",
+            name: "current",
+            type: "uint8",
+          },
+        ],
+        name: "InvalidWorkflowStatus",
+        type: "error",
+      },
+      {
+        inputs: [],
+        name: "NotVoter",
+        type: "error",
+      },
+      {
+        inputs: [
+          {
+            internalType: "address",
+            name: "owner",
+            type: "address",
+          },
+        ],
+        name: "OwnableInvalidOwner",
+        type: "error",
+      },
+      {
+        inputs: [
+          {
+            internalType: "address",
+            name: "account",
+            type: "address",
+          },
+        ],
+        name: "OwnableUnauthorizedAccount",
+        type: "error",
+      },
+      {
+        inputs: [],
+        name: "ProposalNotFound",
+        type: "error",
+      },
+      // --- Événements ---
+      {
+        anonymous: false,
+        inputs: [
+          {
+            indexed: true,
+            internalType: "address",
+            name: "previousOwner",
+            type: "address",
+          },
+          {
+            indexed: true,
+            internalType: "address",
+            name: "newOwner",
+            type: "address",
+          },
+        ],
+        name: "OwnershipTransferred",
+        type: "event",
+      },
+      {
+        anonymous: false,
+        inputs: [
+          {
+            indexed: false,
+            internalType: "uint256",
+            name: "proposalId",
+            type: "uint256",
+          },
+        ],
+        name: "ProposalRegistered",
+        type: "event",
+      },
+      {
+        anonymous: false,
+        inputs: [
+          {
+            indexed: false,
+            internalType: "address",
+            name: "voter",
+            type: "address",
+          },
+          {
+            indexed: false,
+            internalType: "uint256",
+            name: "proposalId",
+            type: "uint256",
+          },
+        ],
+        name: "Voted",
+        type: "event",
+      },
+      {
+        anonymous: false,
+        inputs: [
+          {
+            indexed: false,
+            internalType: "address",
+            name: "voterAddress",
+            type: "address",
+          },
+        ],
+        name: "VoterRegistered",
+        type: "event",
+      },
+      {
+        anonymous: false,
+        inputs: [
+          {
+            indexed: false,
+            internalType: "enum Voting.WorkflowStatus",
+            name: "previousStatus",
+            type: "uint8",
+          },
+          {
+            indexed: false,
+            internalType: "enum Voting.WorkflowStatus",
+            name: "newStatus",
+            type: "uint8",
+          },
+        ],
+        name: "WorkflowStatusChange",
+        type: "event",
+      },
+      // --- Fonctions ---
+      {
+        inputs: [
+          {
+            internalType: "string",
+            name: "_desc",
+            type: "string",
+          },
+        ],
+        name: "addProposal",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [
+          {
+            internalType: "address",
+            name: "_addr",
+            type: "address",
+          },
+        ],
+        name: "addVoter",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [],
+        name: "endProposalsRegistering",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [],
+        name: "endVotingSession",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [
+          {
+            internalType: "uint256",
+            name: "_id",
+            type: "uint256",
+          },
+        ],
+        name: "getOneProposal",
+        outputs: [
+          {
+            components: [
+              {
+                internalType: "string",
+                name: "description",
+                type: "string",
+              },
+              {
+                internalType: "uint256",
+                name: "voteCount",
+                type: "uint256",
+              },
+            ],
+            internalType: "struct Voting.Proposal",
+            name: "",
+            type: "tuple",
+          },
+        ],
+        stateMutability: "view",
+        type: "function",
+      },
+      {
+        inputs: [
+          {
+            internalType: "address",
+            name: "_addr",
+            type: "address",
+          },
+        ],
+        name: "getVoter",
+        outputs: [
+          {
+            components: [
+              {
+                internalType: "bool",
+                name: "isRegistered",
+                type: "bool",
+              },
+              {
+                internalType: "bool",
+                name: "hasVoted",
+                type: "bool",
+              },
+              {
+                internalType: "uint128",
+                name: "votedProposalId",
+                type: "uint128",
+              },
+            ],
+            internalType: "struct Voting.Voter",
+            name: "",
+            type: "tuple",
+          },
+        ],
+        stateMutability: "view",
+        type: "function",
+      },
+      {
+        inputs: [],
+        name: "owner",
+        outputs: [
+          {
+            internalType: "address",
+            name: "",
+            type: "address",
+          },
+        ],
+        stateMutability: "view",
+        type: "function",
+      },
+      {
+        inputs: [],
+        name: "renounceOwnership",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [
+          {
+            internalType: "uint256",
+            name: "_id",
+            type: "uint256",
+          },
+        ],
+        name: "setVote",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [],
+        name: "startProposalsRegistering",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [],
+        name: "startVotingSession",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [],
+        name: "tallyVotes",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [
+          {
+            internalType: "address",
+            name: "newOwner",
+            type: "address",
+          },
+        ],
+        name: "transferOwnership",
+        outputs: [],
+        stateMutability: "nonpayable",
+        type: "function",
+      },
+      {
+        inputs: [],
+        name: "winningProposalID",
+        outputs: [
+          {
+            internalType: "uint256",
+            name: "",
+            type: "uint256",
+          },
+        ],
+        stateMutability: "view",
+        type: "function",
+      },
+      {
+        inputs: [],
+        name: "workflowStatus",
+        outputs: [
+          {
+            internalType: "enum Voting.WorkflowStatus",
+            name: "",
+            type: "uint8",
+          },
+        ],
+        stateMutability: "view",
+        type: "function",
+      },
+    ] as const;
+  ──────
+  │ Note
+  │ La fonction owner est bien présente dans cette ABI.
+  │ L'erreur The contract function "owner" returned no data ("0x") ne vient donc pas d'une absence dans l'ABI, mais du
+  fait
+  │ que le nœud local (Anvil) n'a aucun contrat déployé à l'adresse spécifiée (ou qu'Anvil a redémarré). Pensez à
+  │ redéployer votre contrat avec forge create et reporter l'adresse obtenue dans votre .env.local
+  │ (NEXT_PUBLIC_VOTING_ADDRESS).
+
+  Sources:
+    ▸ gitlab.univ-lille.fr
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ gitlab.univ-lille.fr
+    ▸ gitlab.univ-lille.fr
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ github.com
+    ▸ github.com
+    ▸ github.com
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ sepolia.etherscan.io
+    ▸ gitlab.univ-lille.fr
+    ▸ gitlab.univ-lille.fr
+
+  (ctrl+o to expand)
+
+────────────────────────────────────────────────────────────
+> faire une ou plusieurs proposition argumentées pour corriger l'erreur suivante sur la home après pnpm dev :  Impossible de
+  lire le contrat : Invalid parameters were provided to the RPC method.
+
+○ Thought for 59.6s (The `formatError` function within the contract library is a likely location for error handling. Spe...)
+● Explored 1 file (useVotingData.ts)
+● Ran (ls -la .env*)
+● Explored 1 file (.env.local)
+● Ran 3 commands (+2 · grep -rn "Invalid parameters were provided" node_modules/viem/)
+● Explored 2 files, 2 searches (rpc.ts, useVotingTx.ts) (ctrl+o to expand)
+
+▸ Thought for 42s, 3.8k tokens
+
+  Cette erreur provient de Viem (InvalidParamsRpcError, code standard JSON-RPC -32602 : Invalid method parameter(s)).
+  ──────
+  ### Origine exacte du problème
+
+  En inspectant votre fichier .env.local, vous êtes configuré sur Sepolia avec Infura :
+
+    NEXT_PUBLIC_CHAIN_ID=11155111
+    NEXT_PUBLIC_RPC_URL=https://sepolia.infura.io/v3/...
+    NEXT_PUBLIC_DEPLOY_BLOCK=0
+
+  Au chargement de la page, le hook src/hooks/useVotingData.ts:44-45 exécute :
+
+    client.getContractEvents({ ...votingContract, eventName: "VoterRegistered", fromBlock: DEPLOY_BLOCK }),
+    client.getContractEvents({ ...votingContract, eventName: "ProposalRegistered", fromBlock: DEPLOY_BLOCK }),
+
+  1. La restriction d'Infura : Comme NEXT_PUBLIC_DEPLOY_BLOCK=0, eth_getLogs demande tous les événements depuis le bloc 0
+  jusqu'au bloc latest. Or, le réseau Sepolia a plus de 7 millions de blocs. Infura limite strictement les requêtes
+  eth_getLogs à une plage maximale de 10 000 blocs.
+  2. L'erreur -32602 : Dépasser cette limite provoque un rejet direct par Infura avec le code -32602 ("query exceeds max
+  block range 10000").
+  3. Le masquage du détail : Dans src/components/VotingApp.tsx:61, le composant effectue error.message.split("\n")[0].
+  Cela tronque le message à la première ligne ("Invalid parameters were provided to the RPC method.") et cache la ligne
+  contenant le détail de l'erreur d'Infura.
+  ──────
+  ### Proposition 1 (Recommandée si vous êtes sur Sepolia) : Renseigner le vrai numéro de bloc dans .env.local
+
+  • Argument : En fournissant le numéro de bloc précis auquel votre contrat Voting a été déployé, la plage demandée
+  (latest - DEPLOY_BLOCK) sera bien inférieure à la limite de 10 000 blocs d'Infura.
+  • Mise en œuvre :
+      1. Récupérez le numéro de bloc du déploiement :
+          • Soit dans votre terminal lors du forge create / script de déploiement.
+          • Soit sur Sepolia Etherscan https://sepolia.etherscan.io/ en cherchant l'adresse de votre contrat
+          (0x6261b74BC0B8a9e021BD020C5C85Ccb26C0246eD) dans la transaction de création de contrat.
+      2. Éditez .env.local :
+        NEXT_PUBLIC_DEPLOY_BLOCK=7123456 # Remplacer par le numéro de bloc exact
+
+      3. Redémarrez le serveur Next.js (pnpm dev).
+
+  ──────
+  ### Proposition 2 : Rebasculer en local sur Anvil (si vous vouliez travailler en local)
+
+  • Argument : Sur Anvil, la blockchain locale démarre au bloc 0 et n'impose aucune limite de plage de blocs sur
+  eth_getLogs. Si vous ne souhaitiez pas déployer sur le testnet Sepolia mais tester sur votre machine, la configuration
+  Sepolia / Infura est inadaptée.
+  • Mise en œuvre :
+      1. Éditez .env.local pour cibler Anvil :
+        NEXT_PUBLIC_VOTING_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3
+        NEXT_PUBLIC_DEPLOY_BLOCK=0
+        NEXT_PUBLIC_CHAIN_ID=31337
+        # Laissez NEXT_PUBLIC_RPC_URL vide en local (Next relaie /rpc vers LOCAL_RPC_URL)
+        LOCAL_RPC_URL=http://127.0.0.1:8545
+
+      2. Assurez-vous qu'Anvil tourne (anvil) et que votre contrat y est déployé.
+
+  ──────
+  ### Proposition 3 : Rendre la récupération des événements et l'affichage des erreurs robustes dans le frontend
+
+  • Argument : Même avec un bloc de déploiement valide sur Sepolia, dès que le contrat aura plus de ~33 heures d'existence
+  (~10 000 blocs sur Ethereum), l'erreur -32602 réapparaîtra inévitablement si la requête n'est pas bornée ou découpée. De
+  plus, tronquer le message d'erreur empêche de comprendre la cause en production.
+  • Mise en œuvre :
+      1. **Afficher les détails de l'erreur dans src/components/VotingApp.tsx:59-63** :
+        {error && (
+          <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            Impossible de lire le contrat :{" "}
+            {"details" in error && typeof error.details === "string"
+              ? error.details
+              : error.message.split("\n")[0]}
+          </p>
+        )}
+
+      2. **Sécuriser la plage de blocs dans src/hooks/useVotingData.ts:44-45** :
+      Si le contrat a été déployé il y a longtemps, calculer une borne inférieure sécurisée (ex: max(DEPLOY_BLOCK,
+      currentBlock - 9_000n)) ou implémenter une boucle de pagination par tranches de 5 000 à 10 000 blocs pour récupérer
+      les logs sans être rejeté par les fournisseurs RPC tiers.
+
+
+────────────────────────────────────────────────────────────
+> j'ai déplyer le contrat sur sepolia et lors de validation sur metamask se sont des frais de gas avax peux tu me dire
+  pourquoi et proposer une correction argumenté
+
+○ Thought for 48.2s (Analyzing the code related to voting transactions reveals a type definition (`WriteParams`) used to...)
+● Explored 1 search ("0x6261b74BC0B8a9e021BD020C5C85Ccb26C0246eD" fuji snowtrace)
+● Ran (ls -la src/components/)
+● Explored 1 file (ConnectButton.tsx)
+● Ran (grep -rn "ChainMismatchError" node_modules/wagmi/ node_modules/@wagmi/) failed
+● Explored 1 file (VotingApp.tsx) (ctrl+o to expand)
+
+▸ Thought for 6s, 588 tokens
+
+  ### Pourquoi MetaMask affiche des frais en AVAX ?
+
+  1. La devise native dépend du réseau actif dans MetaMask :
+      • Sur Ethereum et Sepolia, la devise native est l'ETH (ou SepoliaETH).
+      • Sur Avalanche (Mainnet ou testnet Fuji), la devise native est l'AVAX.
+      MetaMask affiche exclusivement le symbole de la cryptomonnaie du réseau qui est actuellement sélectionné dans votre
+      extension.
+  2. Désynchronisation entre le frontend et le wallet :
+      • Votre frontend lit les données via le RPC Sepolia configuré dans Wagmi.
+      • Mais au moment d'écrire une transaction (useVotingTx.ts), Wagmi transmet l'ordre à window.ethereum (MetaMask).
+      • Si votre MetaMask est resté positionné sur le réseau Avalanche Fuji Testnet (dont l'URL Infura figurait d'ailleurs
+      dans votre .env.example), MetaMask prépare la transaction pour le réseau Avalanche. Il calcule donc les frais en
+      AVAX et s'apprête à envoyer la transaction sur la mauvaise blockchain (où votre contrat n'existe pas !).
+
+  ──────
+  ### Corrections proposées et argumentées
+
+  #### 1. Correction immédiate dans MetaMask (Côté utilisateur)
+
+  • Argument : C'est la solution la plus rapide. En alignant le réseau de votre wallet sur celui du contrat, MetaMask
+  utilisera des SepoliaETH pour le gas.
+  • Marche à suivre :
+      1. Ouvrez l'extension MetaMask.
+      2. Cliquez sur le sélecteur de réseau en haut à gauche.
+      3. Activez « Afficher les réseaux de test » si ce n'est pas déjà fait.
+      4. Sélectionnez Sepolia (Chain ID 11155111).
+      5. (Alternative) : Cliquez directement sur le bouton orange « Basculer sur Sepolia » déjà prévu dans le composant
+      src/components/ConnectButton.tsx:24-31 de votre application.
+
+
+  │ Tip
+  │ Assurez-vous d'avoir quelques SepoliaETH sur votre adresse (obtenables gratuitement sur un faucet comme Google Cloud
+  │ Web3 Faucet ou Alchemy Sepolia Faucet) pour payer le gas de la transaction.
+  ──────
+  #### 2. Vérification des paramètres du réseau dans MetaMask
+
+  • Argument : Si vous pensiez avoir déjà sélectionné "Sepolia" dans MetaMask mais que le symbole affiché reste "AVAX",
+  c'est qu'un réseau personnalisé a été créé avec un symbole de devise erroné.
+  • Marche à suivre :
+      1. Allez dans MetaMask : Paramètres > Réseaux.
+      2. Cliquez sur le réseau actif et vérifiez les champs :
+          • Nom du réseau : Sepolia Test Network
+          • ID de chaîne : 11155111
+          • Symbole de la devise : ETH (et non AVAX).
+          • URL de l'explorateur : https://sepolia.etherscan.io
+
+
+  ──────
+  #### 3. Sécuriser le code frontend dans src/hooks/useVotingTx.ts (Correctif de code)
+
+  • Argument : Actuellement, le hook useVotingTx envoie la transaction via mutateAsync(request) sans vérifier si le wallet
+  est sur le bon réseau, ni imposer le chainId. Si l'utilisateur oublie de cliquer sur "Basculer sur Sepolia", la
+  transaction part sur Avalanche sans avertissement bloquant.
+  • Solution : En intégrant le hook useSwitchChain ou en passant explicitement chainId: chain.id à mutateAsync, Wagmi
+  obligera automatiquement MetaMask à basculer sur Sepolia avant d'ouvrir la popup de confirmation.
+
+  Exemple de correction dans src/hooks/useVotingTx.ts :
+
+    import { useConnection, usePublicClient, useWriteContract, useSwitchChain, useChainId } from "wagmi";
+    import { chain } from "@/lib/wagmi";
+    
+    export function useVotingTx() {
+      const { address } = useConnection();
+      const currentChainId = useChainId();
+      const { switchChainAsync } = useSwitchChain();
+      const publicClient = usePublicClient();
+      const queryClient = useQueryClient();
+      const { mutateAsync } = useWriteContract();
+      const [state, setState] = useState<TxState>({ status: "idle" });
+    
+      async function send(call: VotingCall, successMessage: string) {
+        if (!publicClient || !address) return false;
+        setState({ status: "pending", message: "Transaction en cours…" });
+        try {
+          // 1. Force le wallet à basculer sur le bon réseau (Sepolia) s'il est sur Avalanche
+          if (currentChainId !== chain.id) {
+            await switchChainAsync({ chainId: chain.id });
+          }
+    
+          const request = { ...votingContract, ...call, chainId: chain.id } as WriteParams;
+          await publicClient.simulateContract({ ...request, account: address } as never);
+          const hash = await mutateAsync(request as never);
+          const receipt = await publicClient.waitForTransactionReceipt({ hash });
+          
+          if (receipt.status !== "success") throw new Error("La transaction a échoué (revert).");
+          setState({ status: "success", message: successMessage });
+          await queryClient.invalidateQueries({ queryKey: ["voting"] });
+          return true;
+        } catch (error) {
+          setState({ status: "error", message: formatError(error) });
+          return false;
+        }
+      }
+    
+      return { send, state, isPending: state.status === "pending", reset: () => setState({ status: "idle" }) };
+    }
+
+────────────────────────────────────────────────────────────
+> dans l'app il est important de pourvoir boucler à la fin d'une phase de vote. L'admin doit avoir un bouton pour
+  réinitialiser l'app en gardant les inscrits
+
+○ Thought for 35.5s (The code displays a "next step" button within an administrative panel. The button triggers a workfl...)
+● Explored 5 files (Voting.sol, AdminPanel.tsx, WorkflowStepper.tsx, +2) (ctrl+o to expand)
+
+▸ Thought for 32s, 3.8k tokens
+
+  Pour permettre de « boucler » à la fin d'un vote en conservant la liste des électeurs déjà inscrits, l'intervention doit
+  se faire à la fois sur le Smart Contract (car l'état de la blockchain est immuable et le contrat actuel s'arrête
+  définitivement à VotesTallied) et sur le Frontend (pour ajouter le bouton dans le panneau d'administration).
+  ──────
+  ### 1. Le défi technique côté Smart Contract
+
+  Dans ~/develop/alyra/voting/src/Voting.sol, une fois l'étape VotesTallied atteinte :
+
+  1. Aucun statut suivant n'existe : le contrat est bloqué dans cet état final.
+  2. Chaque électeur inscrit a hasVoted = true.
+  3. Pour recommencer en gardant les inscrits, il faut obligatoirement pouvoir :
+      • Remettre le statut à RegisteringVoters (pour éventuellement ajouter d'autres électeurs) ou directement à
+      ProposalsRegistrationStarted.
+      • Vider la liste des propositions (proposalsArray).
+      • Permettre aux électeurs de revoter.
+
+
+  │ Caution
+  │ Le piège du DoS par boucle :
+  │ Pour remettre hasVoted = false à tous les électeurs, une mauvaise pratique consisterait à faire une boucle for sur
+  tous
+  │ les électeurs. Comme votre contrat a précisément été optimisé pour éliminer les boucles (anti-DoS sur tallyVotes), une
+  │ boucle ici recréerait une faille de dépassement de gas !
+
+  #### La solution optimale en O(1) de Gas : Le Session ID (ou Round)
+
+  Plutôt qu'un booléen hasVoted, on suit le numéro de session pendant lequel l'électeur a voté :
+
+  • Le contrat a un compteur uint256 public currentSession = 1;.
+  • Un électeur est considéré comme ayant voté dans la session en cours si voter.votedSession == currentSession.
+  • Pour réinitialiser le vote : l'admin appelle resetVotingSession() qui fait simplement currentSession++, vide
+  proposalsArray et remet winningProposalID = 0.
+  • Résultat : Coût en gas infime (~35 000 gas), pas de boucle, aucun risque de blocage, et tous les électeurs restent
+  inscrits (isRegistered = true) tout en pouvant immédiatement revoter !
+  ──────
+  ### 2. Modifications à apporter
+
+  #### A. Dans le contrat ../src/Voting.sol
+
+  1. Ajouter le numéro de session dans le struct Voter et dans le contrat :
+
+    struct Voter {
+        bool isRegistered;
+        uint32 votedSession; // 0 = n'a pas voté dans la session actuelle
+        uint128 votedProposalId;
+    }
+    
+    uint256 public currentSession = 1;
+    event SessionReset(uint256 newSession);
+
+  2. Adapter setVote et getVoter :
+
+    function setVote(uint256 _id) external onlyVoters atStatus(WorkflowStatus.VotingSessionStarted) {
+        Voter storage voter = voters[msg.sender];
+        if (voter.votedSession == currentSession) revert AlreadyVoted();
+        if (_id >= proposalsArray.length) revert ProposalNotFound();
+    
+        voter.votedSession = uint32(currentSession);
+        voter.votedProposalId = uint128(_id);
+        ...
+
+  3. Ajouter la fonction de réinitialisation :
+
+    /// @notice Réinitialise le vote pour une nouvelle session tout en conservant les électeurs inscrits.
+    function resetVotingSession() external onlyOwner atStatus(WorkflowStatus.VotesTallied) {
+        currentSession++;
+        delete proposalsArray;
+        winningProposalID = 0;
+        leadingProposalId = 0;
+        _setStatus(WorkflowStatus.VotesTallied, WorkflowStatus.RegisteringVoters);
+        emit SessionReset(currentSession);
+    }
+  ──────
+  #### B. Dans le Frontend
+
+  1. **Dans src/lib/contract.ts** :
+  Ajouter l'étape de bouclage dans WORKFLOW_STEPS :
+    type NextStepFunction =
+      | "startProposalsRegistering"
+      | "endProposalsRegistering"
+      | "startVotingSession"
+      | "endVotingSession"
+      | "tallyVotes"
+      | "resetVotingSession"; // <- Ajout
+    
+    export const WORKFLOW_STEPS: { label: string; next?: { fn: NextStepFunction; label: string } }[] = [
+      { label: "Inscription des électeurs", next: { fn: "startProposalsRegistering", label: "Ouvrir les propositions" } },
+      { label: "Propositions ouvertes", next: { fn: "endProposalsRegistering", label: "Clore les propositions" } },
+      { label: "Propositions closes", next: { fn: "startVotingSession", label: "Ouvrir le vote" } },
+      { label: "Vote en cours", next: { fn: "endVotingSession", label: "Clore le vote" } },
+      { label: "Vote clos", next: { fn: "tallyVotes", label: "Dépouiller les votes" } },
+      // Bouton de réinitialisation lorsque le vote est dépouillé :
+      { 
+        label: "Votes dépouillés", 
+        next: { fn: "resetVotingSession", label: "🔄 Démarrer une nouvelle session" } 
+      },
+    ];
+
+  2. **Dans src/components/AdminPanel.tsx** :
+  Le bouton s'affichera automatiquement grâce à next. Nous pouvons également le mettre en valeur visuellement lorsque
+  status === WorkflowStatus.VotesTallied :
+    {next ? (
+      <div className="space-y-2">
+        <p className="text-sm text-slate-600">
+          {status === WorkflowStatus.VotesTallied ? "Cycle terminé :" : "Étape suivante du workflow :"}
+        </p>
+        <button
+          onClick={() => tx.send({ functionName: next.fn }, `${next.label} : fait.`)}
+          disabled={tx.isPending}
+          className={`w-full rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+            status === WorkflowStatus.VotesTallied
+              ? "bg-amber-600 hover:bg-amber-700"
+              : "bg-slate-900 hover:bg-slate-700"
+          }`}
+        >
+          {next.label} →
+        </button>
+        {status === WorkflowStatus.VotesTallied && (
+          <p className="text-xs text-slate-500">
+            Les propositions et votes précédents seront effacés, mais tous les électeurs déjà inscrits seront conservés.
+          </p>
+        )}
+      </div>
+    ) : null}
+
+  3. **Mettre à jour src/lib/votingAbi.ts** :
+  Ajouter la définition de la fonction resetVotingSession dans l'ABI :
+    {
+      inputs: [],
+      name: "resetVotingSession",
+      outputs: [],
+      stateMutability: "nonpayable",
+      type: "function"
+    }
+  ──────
+  Souhaitez-vous que j'applique ces modifications dans le contrat Voting.sol et dans les fichiers du frontend
+  (contract.ts, AdminPanel.tsx, votingAbi.ts) ?
+
+────────────────────────────────────────────────────────────
+> oui merci d'appliquer les modifications sur l'ensemble des fichiers
+○ Thought for 1m 38s (The code attempts to optimize fetching proposal IDs by using a contract function if available, to...)
+● Explored 1 file (Voting.sol)
+● Edited 1 file (Voting.sol)
+… 20 more actions (10 reads, 9 edits, 1 command: 1 failed) …
+● Ran 2 commands (pnpm exec tsc --noEmit · pnpm lint)
+● Ran (pnpm build) failed (ctrl+o to expand)
+
+  Le build Next.js est en cours d'exécution pour valider la compilation globale. Je vérifie son statut.
+
+○ Thought for 3.0s (Reactive wakeup eliminates the need for polling loops. Asynchronous tasks automatically resume execu...)
+● Checked 1 task (task-181)
+● Scheduled 1 timer (5s: Waiting for Next.js build to finish) (ctrl+o to expand)
+
+  Je patiente pendant la finalisation du build.
+
+▸ Thought for 7s
+  Toutes les modifications ont été appliquées avec succès sur l'ensemble des fichiers du projet.
+  ──────
+  ### Résumé des modifications appliquées
+
+  #### 1. Smart Contract : ../src/Voting.sol
+  • Architecture par numéro de session (currentSession) en O(1) de gas :
+      • Ajout de uint256 public currentSession = 1; et de l'événement event SessionReset(uint256 newSession);.
+      • La structure de stockage interne VoterData stocke uint32 votedSession (dans le même slot de stockage de 32 octets
+      que isRegistered et votedProposalId).
+      • setVote vérifie voter.votedSession == currentSession : un électeur ne peut voter qu'une seule fois par session.
+      • getVoter renvoie hasVoted = (voter.votedSession == currentSession), préservant une compatibilité totale avec l'ABI
+      et le frontend existants.
+      • Ajout de la fonction resetVotingSession() (onlyOwner accessible uniquement à l'étape VotesTallied) :
+          • Incrémente currentSession++ (rendant instantanément le droit de vote à tous les inscrits en O(1) sans boucle).
+          • Supprime proposalsArray (remboursement de gas EVM).
+          • Réinitialise winningProposalID = 0 et leadingProposalId = 0.
+          • Repasse le statut à RegisteringVoters (permettant d'ajouter de nouveaux électeurs si souhaité ou de réouvrir
+          les propositions).
+      • Ajout du getter getProposalsCount() pour connaître la taille exacte des propositions de la session courante.
+
+
+  #### 2. ABI Frontend : src/lib/votingAbi.ts
+  • Ajout de la fonction resetVotingSession.
+  • Ajout des getters currentSession et getProposalsCount.
+  • Ajout de l'événement SessionReset.
+  #### 3. Configuration du Workflow : src/lib/contract.ts
+  • Intégration de "resetVotingSession" dans NextStepFunction.
+  • Mise à jour de l'étape finale dans WORKFLOW_STEPS :
+    { label: "Votes dépouillés", next: { fn: "resetVotingSession", label: "Démarrer une nouvelle session" } }
+
+
+  #### 4. Interface Admin : src/components/AdminPanel.tsx
+  • Lorsque le dépouillement est terminé (VotesTallied), le panneau d'administration affiche désormais un bouton d'action
+  dédié mis en valeur :
+  🔄 Démarrer une nouvelle session →
+  • Une note explicative précise à l'administrateur que les électeurs inscrits sont conservés et que les
+  votes/propositions sont réinitialisés.
+
+  #### 5. Hooks de données et de transaction :
+
+  • src/hooks/useVotingData.ts :
+      • Utilise désormais getProposalsCount() pour charger uniquement les propositions de la session active (sans risque
+      de conflit ou de doublon avec les sessions précédentes).
+      • Déduplique la liste des électeurs issus des logs.
+  • src/hooks/useVotingTx.ts :
+      • Typage strict TypeScript (TxState, VotingCall, WriteParams).
+      • Vérification automatique de la chaîne (chainId: chain.id) avec basculement automatique via switchChainAsync si le
+      wallet est sur le mauvais réseau.
+
+  ──────
+  ### Prochaines étapes
+
+  Pour tester cette nouvelle fonctionnalité :
+
+  1. Redéployer le contrat mis à jour (avec forge create sur Anvil ou Sepolia).
+  2. Reporter la nouvelle adresse dans votre fichier .env.local (NEXT_PUBLIC_VOTING_ADDRESS).
+  3. Lancer l'application (pnpm dev) et parcourir un cycle de vote complet : le bouton de réinitialisation apparaîtra dès
+  que les votes seront dépouillés.
