@@ -27,6 +27,11 @@ export function useVotingData() {
   const { address } = useConnection();
   const publicClient = usePublicClient();
   const { data: blockNumber } = useBlockNumber({ watch: true });
+  // Calculer un bloc de départ qui ne dépasse jamais 9 000 blocs en arrière
+  const currentBlock = blockNumber ?? 0n;
+  const safeFromBlock = currentBlock > 9000n && (currentBlock - DEPLOY_BLOCK > 9000n)
+    ? currentBlock - 9000n
+    : DEPLOY_BLOCK;
 
   return useQuery({
     queryKey: ["voting", address, blockNumber?.toString()],
@@ -41,8 +46,8 @@ export function useVotingData() {
         read<Address>("owner"),
         read<number>("workflowStatus"),
         read<bigint>("winningProposalID"),
-        client.getContractEvents({ ...votingContract, eventName: "VoterRegistered", fromBlock: DEPLOY_BLOCK }),
-        client.getContractEvents({ ...votingContract, eventName: "ProposalRegistered", fromBlock: DEPLOY_BLOCK }),
+        client.getContractEvents({ ...votingContract, eventName: "VoterRegistered", fromBlock: safeFromBlock }),
+        client.getContractEvents({ ...votingContract, eventName: "ProposalRegistered", fromBlock: safeFromBlock }),
       ]);
 
       const seen = new Set<string>();
