@@ -1,21 +1,9 @@
 import { createConfig, createConnector, http, injected, mock, type Transport } from "wagmi";
-import { foundry, sepolia } from "wagmi/chains";
-import { defineChain, type Address } from "viem";
+import type { Address } from "viem";
+import { targetChain, isLocalNetwork } from "@/config/chains";
 
-const isLocal = (process.env.NEXT_PUBLIC_CHAIN_ID || "31337") === String(foundry.id);
-
-const rpcUrl =
-  process.env.NEXT_PUBLIC_RPC_URL ||
-  (isLocal
-    ? typeof window !== "undefined"
-      ? `${window.location.origin}/rpc`
-      : "http://127.0.0.1:8545"
-    : sepolia.rpcUrls.default.http[0]);
-
-export const chain = defineChain({
-  ...(isLocal ? foundry : sepolia),
-  rpcUrls: { default: { http: [rpcUrl] } },
-});
+// Exportation de la chaîne pour les hooks et composants (ConnectButton, useVotingTx, etc.)
+export const chain = targetChain;
 
 // Comptes de test Anvil (clés publiques et bien connues) : permettent de tester sans wallet en local.
 const ANVIL_ACCOUNTS: Address[] = [
@@ -34,10 +22,13 @@ const anvilConnectors = ANVIL_ACCOUNTS.map((account, i) =>
   })),
 );
 
+// Configuration Wagmi agnostique
 export const config = createConfig({
   chains: [chain],
-  connectors: [injected(), ...(isLocal ? anvilConnectors : [])],
-  transports: { [chain.id]: http(rpcUrl) } as Record<typeof chain.id, Transport>,
+  connectors: [injected(), ...(isLocalNetwork ? anvilConnectors : [])],
+  transports: {
+    [chain.id]: http(chain.rpcUrls.default.http[0]),
+  } as Record<typeof chain.id, Transport>,
   ssr: true,
 });
 
